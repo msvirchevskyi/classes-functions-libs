@@ -43,7 +43,7 @@ private:
    riff_header wav_r_header;
    format_header wav_f_header;
    data_header wav_d_header;
-   uint16_t* wave_channel = 0;
+   int8_t* wave_channel = 0;
    bool start_write_file = false;
    int sr_duration = 0; //alldisc size
    int current_sample,total_current_samples = 0;
@@ -58,7 +58,7 @@ public:
         delete_buffer();
     };
     void create_buffer(int s_rate){
-        wave_channel = new uint16_t [s_rate];
+        wave_channel = new int8_t [s_rate];
     }
     void clear_buffer(){
         for (int i = 0; i < sr_duration; i++)
@@ -145,7 +145,7 @@ public:
     void import_from_wav_file(){
     
     }    
-    void import_from_dat_file(string fileName, int rate = 1000, int amplif = 1){
+    void import_from_dat_file(string fileName, int rate = 1000, int amplif = 1, int byte_per_frame = 1, int balance = -59){
         delete_buffer();
         FILE *bfile;
         int file_size,readed_size = 0;
@@ -155,13 +155,14 @@ public:
         create_buffer(file_size);
         fseek(bfile, 0, SEEK_SET);
         for (int i=0; i<file_size; i++) {
-           readed_size=readed_size+fread(&wave_channel[i],1,1,bfile);
+           readed_size=readed_size+fread(&wave_channel[i],byte_per_frame,1,bfile);
            wave_channel[i]=wave_channel[i]*amplif;
         }
         fclose(bfile);
-        current_sample=file_size/2;
+        current_sample=file_size/byte_per_frame;
         total_current_samples=current_sample;
         wav_f_header.SampleRate=rate;
+        wav_f_header.BitsPerSample=byte_per_frame*8;
         cout << readed_size << endl;
         cout << file_size << endl;
         cout << total_current_samples << endl;
@@ -175,23 +176,39 @@ public:
 
 
 int main(){
-    int mode,input,input2,s_rate,ampl = 0;
+    int input,input2,s_rate,ampl,byte_per_frame,mic_balance = 0;
+    int mode = -1;
     int tfreq = 50;
     string infn,outfn;
     input=3600;
     pcm_wave_audio wav(8000,input*8000);
     cout << "input program mode:" << endl;
+    cout << "0=auto convert dat to wav" << endl;
     cout << "1=convert dat to wav" << endl;
     cout << "2=generate sounds" << endl;
     cout << "3=generate noise" << endl;
     cin >> mode;
     while (true)
     { 
+      if (mode==0)
+      {
+        cout << "input dat filename, settings get from dattowav.ini" << endl;
+        cin >> infn;
+        ifstream tfile("dattowav.ini");
+        tfile >> s_rate;
+        tfile >> ampl;
+        tfile >> byte_per_frame;
+        tfile >> mic_balance;
+        tfile.close();
+        wav.import_from_dat_file(infn+".dat",s_rate,ampl,byte_per_frame,mic_balance);
+        wav.export_to_wav_file(infn+".wav");
+        cout << "--------------------------close program-------------------------------" << endl;
+      }
       if (mode==1)
       {
-        cout << "input dat filename, out wav filename, dat file samplerate, amplitude" << endl;
-        cin >> infn >> outfn >> s_rate >> ampl;
-        wav.import_from_dat_file(infn+".dat",s_rate,ampl);
+        cout << "input dat filename, out wav filename, dat file samplerate, bytePerFrame, micBalance, amplitude" << endl;
+        cin >> infn >> outfn >> s_rate >> byte_per_frame >> mic_balance >> ampl;
+        wav.import_from_dat_file(infn+".dat",s_rate,ampl,byte_per_frame,mic_balance);
         wav.export_to_wav_file(outfn+".wav");
         cout << "---------------------------------------------------------" << endl;
       }
