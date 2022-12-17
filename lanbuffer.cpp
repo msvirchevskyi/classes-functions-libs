@@ -7,6 +7,7 @@
 #include <NTPClient.h>
 #include <SPI.h>
 #include <SD.h>
+#include <chrono>
 
 #define sd_cspin 15
 #define power_sensor A0
@@ -217,9 +218,9 @@ class tFile {
  int time_not_update = 5;
  int non_ntp_time = 0;
  int INTERNET = 10;
- int timers[6] ={0,0,0,0,0,0};
- String  SSIDS = "38E";
- String  PASSS = "S380965872552m";
+ uint16_t timers[6] ={0,0,0,0,0,0};
+ String  SSIDS = "";
+ String  PASSS = "";
 
 //=========================================================================================================
 
@@ -359,8 +360,8 @@ String html_comms(){
     res=res+tts+"<br>";     
     } 
   if (active_web_page=="otherfile_page") { 
-    res=res+"<br>"+add_text_field("Input Data:","file")+"<br>";
-    res=res+"<br>"+add_text_field("Input Data:","addwievfile")+"<br>";  
+    //res=res+"<br>"+add_text_field("Input Data:","file")+"<br>";
+    //res=res+"<br>"+add_text_field("Input Data:","addwievfile")+"<br>";  
     res=res+add_button("Clear File","/?file="+file_name+"&cleanfile=1")+"<br>"; 
     res=res+tts+"<br>";    
     }       
@@ -416,25 +417,119 @@ void led_flowing_up(int del = 1000){
   led_in.dWrite1();
   }  
 
+String unixTimeToHumanReadable(long int seconds) //getted https://www.geeksforgeeks.org/convert-unix-timestamp-to-dd-mm-yyyy-hhmmss-format/
+{
+    String ans = "";
+    int daysOfMonth[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    long int currYear, daysTillNow, extraTime, extraDays, index, date, month, hours, minutes, secondss, flag = 0;
+    daysTillNow = seconds / (24 * 60 * 60);
+    extraTime = seconds % (24 * 60 * 60);
+    currYear = 1970;
+    // Calculating current year and months
+    while (true) {
+        if (currYear % 400 == 0
+            || (currYear % 4 == 0 && currYear % 100 != 0)) {
+            if (daysTillNow < 366) {
+                break;
+            }
+            daysTillNow -= 366;
+        }
+        else {
+            if (daysTillNow < 365) {
+                break;
+            }
+            daysTillNow -= 365;
+        }
+        currYear += 1;
+    }
+    extraDays = daysTillNow + 1;
+    if (currYear % 400 == 0 || (currYear % 4 == 0 && currYear % 100 != 0)) flag = 1;
+    month = 0, index = 0;
+    if (flag == 1) {
+        while (true) {
+            if (index == 1) {
+                if (extraDays - 29 < 0)
+                    break;
+                month += 1;
+                extraDays -= 29;
+            }
+            else {
+                if (extraDays - daysOfMonth[index] < 0) {
+                    break;
+                }
+                month += 1;
+                extraDays -= daysOfMonth[index];
+            }
+            index += 1;
+        }
+    }
+    else {
+        while (true) {
+            if (extraDays - daysOfMonth[index] < 0) {
+                break;
+            }
+            month += 1;
+            extraDays -= daysOfMonth[index];
+            index += 1;
+        }
+    }
+    if (extraDays > 0) {
+        month += 1;
+        date = extraDays;
+    }
+    else {
+        if (month == 2 && flag == 1)
+            date = 29;
+        else {
+            date = daysOfMonth[month - 1];
+        }
+    }
+    // Calculating HH:MM:YYYY
+    hours = extraTime / 3600;
+    minutes = (extraTime % 3600) / 60;
+    secondss = (extraTime % 3600) % 60;
+    // Return the time
+    ans = String(currYear)+"-"+String(month)+"-"+String(date)+"/"+String(hours)+":"+String(minutes)+":"+String(secondss);
+    timers[5]=currYear;  
+    timers[4]=month;
+    timers[3]=date;
+    timers[2]=hours;
+    timers[1]=minutes;
+    timers[0]=secondss; 
+    return ans;
+}
+
+
 //розбір змінних часу на частини,відлік часу
 void timecalculate_ntp(){
   if (INTERNET>0){INTERNET--;}
   if (time_updated==false and INTERNET>0) {timeClient.update(); time_updated=true;} 
   unsigned long epochTime = timeClient.getEpochTime();
-  struct tm *ptm = gmtime ((time_t *)&epochTime);   
-  timers[5]=ptm->tm_year+1900;
-  timers[4]=ptm->tm_mon+1;
-  timers[3]=ptm->tm_mday;
-  timers[2]=timeClient.getHours();
-  timers[1]=timeClient.getMinutes();
-  timers[0]=timeClient.getSeconds();  
-  tts=String(timers[5])+"-"+String(timers[4])+"-"+String(timers[3])+"/"+String(timers[2])+":"+String(timers[1])+":"+String(timers[0]);  
+  tts=unixTimeToHumanReadable(epochTime); 
   if (INTERNET==1){
     FileSystemLog.WriteToFile("//Time Set["+String(non_ntp_time)+"]:"+tts);
     time_updated=true;
-    }   
+    }  
+  Serial.println(String(epochTime)); 
   Serial.println(tts);
   } 
+
+
+void delemStrToTwoStr(String dstr, String * str1, String * str2, char delim){
+  *str1=""; *str2="";
+  String s1,s2 = "";
+  int l = dstr.length(); 
+  for (int i=0; i<l; i++){
+      if (dstr[i]==delim){
+        s1=dstr.substring(0,i-1); 
+        s2=dstr.substring(i+1,l);
+        break;
+      }
+  }
+  *str1=s1; *str2=s2;
+  Serial.println("");
+  Serial.println("0sp:"+s1+"->"+s2);
+}
 
 //=========================================================================================================
 
@@ -487,6 +582,10 @@ led_in.enable();
 ps.enable();
 FileSystemLog.initSD(sd_cspin);
 FileSystemLog.WriteToFile("//System started");
+CustomFile.recFileName="wifi_settings.ini";
+//Serial.println("sl:"+CustomFile.ReadFile());
+delemStrToTwoStr(CustomFile.ReadFile(),&SSIDS,&PASSS,'\n');
+//Serial.println("  s+p:"+SSIDS+"+>"+PASSS);
 time_flow_2();
 WiFi.mode(WIFI_STA);
 WiFi.begin(SSIDS,PASSS);      
