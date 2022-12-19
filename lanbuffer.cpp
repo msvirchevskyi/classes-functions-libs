@@ -8,6 +8,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include <chrono>
+#include <ESP8266HTTPClient.h>
 
 #define sd_cspin 15
 #define power_sensor A0
@@ -218,9 +219,12 @@ class tFile {
  int time_not_update = 5;
  int non_ntp_time = 0;
  int INTERNET = 10;
+ unsigned long starting_unix_sytem_time = 0;
+ unsigned long set_unix_system_time = 0;
  uint16_t timers[6] ={0,0,0,0,0,0};
  String  SSIDS = "";
  String  PASSS = "";
+ String  lan_server_name = "";
 
 //=========================================================================================================
 
@@ -500,14 +504,49 @@ String unixTimeToHumanReadable(long int seconds) //getted https://www.geeksforge
 }
 
 
+//відправка листа
+String send_and_get_mesage(String mes, String url_key){
+ WiFiClient client; 
+ HTTPClient http;
+ String payload = "";
+ int httpResponseCode = -1;
+ String serverPath = "";
+ serverPath = url_key+mes;
+ Serial.println(serverPath);
+ http.begin(client, serverPath.c_str());
+ httpResponseCode = http.POST(serverPath);
+ if (httpResponseCode>0) {
+   Serial.print("HTTP Response code: ");
+   Serial.println(httpResponseCode);
+   payload = http.getString();
+   Serial.println(payload);}
+ else {
+  Serial.print("Error code: ");
+  Serial.println(httpResponseCode);}
+ delay(100);
+ http.end(); 
+ return  payload;   
+ }
+
+
+void timecalculate_lan(){
+  if (starting_unix_sytem_time==0){starting_unix_sytem_time = millis()/1000;}
+  if (set_unix_system_time==0){set_unix_system_time=send_and_get_mesage("/?get=unix_time",lan_server_name).toInt();}  
+  unsigned long res = (set_unix_system_time+(millis()/1000))-starting_unix_sytem_time;
+  tts=unixTimeToHumanReadable(res); 
+  if (set_unix_system_time>0 and time_updated==false){FileSystemLog.WriteToFile("//Time Set by Lan["+String(non_ntp_time)+"]:"+tts); time_updated=true;}
+  Serial.println(String(res)); 
+  Serial.println(tts);
+}
+
 //розбір змінних часу на частини,відлік часу
 void timecalculate_ntp(){
   if (INTERNET>0){INTERNET--;}
-  if (time_updated==false and INTERNET>0) {timeClient.update(); time_updated=true;} 
+  if (time_updated==false and INTERNET>0) {time_updated=timeClient.update();} 
   unsigned long epochTime = timeClient.getEpochTime();
   tts=unixTimeToHumanReadable(epochTime); 
   if (INTERNET==1){
-    FileSystemLog.WriteToFile("//Time Set["+String(non_ntp_time)+"]:"+tts);
+    FileSystemLog.WriteToFile("//Time Set by Ntp["+String(non_ntp_time)+"]:"+tts);
     time_updated=true;
     }  
   Serial.println(String(epochTime)); 
@@ -558,7 +597,11 @@ void time_flow_3(){ //integrated time control flow 1sec
  ps.ReadPin();
  if (ps.backVolts(3.3*2)>4.5) {curr_power_status=true;}
  non_ntp_time++;
- timecalculate_ntp();
+ if (lan_server_name!=""){
+  timecalculate_lan();
+ } else {
+  timecalculate_ntp();
+ }
  if (last_power_status!=curr_power_status){
    FileSystemLog.WriteToFile("//Change power status["+String(non_ntp_time)+"]["+tts+"]:"+String(curr_power_status)); 
    Serial.println("Change power status:"+String(curr_power_status));
@@ -583,9 +626,9 @@ ps.enable();
 FileSystemLog.initSD(sd_cspin);
 FileSystemLog.WriteToFile("//System started");
 CustomFile.recFileName="wifi_settings.ini";
-//Serial.println("sl:"+CustomFile.ReadFile());
 delemStrToTwoStr(CustomFile.ReadFile(),&SSIDS,&PASSS,'\n');
-//Serial.println("  s+p:"+SSIDS+"+>"+PASSS);
+CustomFile.recFileName="lan_time_server.ini";
+lan_server_name=CustomFile.ReadFile();
 time_flow_2();
 WiFi.mode(WIFI_STA);
 WiFi.begin(SSIDS,PASSS);      
